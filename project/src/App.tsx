@@ -92,13 +92,13 @@ function App() {
 
   const getGoogleLoginUrl = () => {
     const redirectUri = encodeURIComponent(getRedirectUri());
-    return `https://ap-southeast-2usngbi9wi.auth.ap-southeast-2.amazoncognito.com/login?response_type=code&client_id=12nf22nqg8mpcq1q77nm5uqbls&scope=email+openid+profile&redirect_uri=${redirectUri}`;
+    return `https://ap-southeast-2usnGBI9WI.auth.ap-southeast-2.amazoncognito.com/login?response_type=code&client_id=12nf22nqg8mpcq1q77nm5uqbls&scope=email+openid+profile&redirect_uri=${redirectUri}`;
   };
 
   const exchangeCodeForUserInfo = async (code: string) => {
     try {
       // トークンエンドポイントでaccess tokenを取得
-      const tokenResponse = await fetch('https://ap-southeast-2usngbi9wi.auth.ap-southeast-2.amazoncognito.com/oauth2/token', {
+      const tokenResponse = await fetch('https://ap-southeast-2usnGBI9WI.auth.ap-southeast-2.amazoncognito.com/oauth2/token', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
@@ -115,7 +115,7 @@ function App() {
         const tokenData = await tokenResponse.json();
         
         // access tokenを使ってユーザー情報を取得
-        const userResponse = await fetch('https://ap-southeast-2usngbi9wi.auth.ap-southeast-2.amazoncognito.com/oauth2/userInfo', {
+        const userResponse = await fetch('https://ap-southeast-2usnGBI9WI.auth.ap-southeast-2.amazoncognito.com/oauth2/userInfo', {
           headers: {
             'Authorization': `Bearer ${tokenData.access_token}`,
           },
