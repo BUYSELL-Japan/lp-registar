@@ -43,7 +43,6 @@ const PREFECTURES = [
   '熊本県', '大分県', '宮崎県', '鹿児島県', '沖縄県'
 ];
 
-const GOOGLE_LOGIN_URL = 'https://ap-southeast-2usngbi9wi.auth.ap-southeast-2.amazoncognito.com/login?response_type=code&client_id=12nf22nqg8mpcq1q77nm5uqbls&scope=email+openid+profile&redirect_uri=https%3A%2F%2Fregister.yuimaru-ship.box-pals.com%2F';
 
 function App() {
   const [userInfo, setUserInfo] = useState<UserInfo | null>(null);
@@ -85,6 +84,17 @@ function App() {
     }
   }, []);
 
+  // 動的にリダイレクトURIを取得
+  const getRedirectUri = () => {
+    // 末尾にスラッシュを付けて、Cognito側の設定（例: https://example.com/）と合わせる
+    return `${window.location.origin}/`;
+  };
+
+  const getGoogleLoginUrl = () => {
+    const redirectUri = encodeURIComponent(getRedirectUri());
+    return `https://ap-southeast-2usngbi9wi.auth.ap-southeast-2.amazoncognito.com/login?response_type=code&client_id=12nf22nqg8mpcq1q77nm5uqbls&scope=email+openid+profile&redirect_uri=${redirectUri}`;
+  };
+
   const exchangeCodeForUserInfo = async (code: string) => {
     try {
       // トークンエンドポイントでaccess tokenを取得
@@ -97,7 +107,7 @@ function App() {
           grant_type: 'authorization_code',
           client_id: '12nf22nqg8mpcq1q77nm5uqbls',
           code: code,
-          redirect_uri: 'https://register.yuimaru-ship.box-pals.com/',
+          redirect_uri: getRedirectUri(),
         }),
       });
 
@@ -138,7 +148,7 @@ function App() {
   };
 
   const handleGoogleLogin = () => {
-    window.location.href = GOOGLE_LOGIN_URL;
+    window.location.href = getGoogleLoginUrl();
   };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
