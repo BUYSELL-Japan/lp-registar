@@ -335,9 +335,9 @@ function App() {
               </div>
               
               <h1 className="text-3xl font-extrabold text-white mb-2 tracking-tight">
-                Yuimaru Ship
+                Landy
               </h1>
-              <p className="text-blue-200/80 font-medium mb-8">
+              <p className="text-blue-200/80 font-medium mb-8 text-sm">
                 店舗情報の登録・管理ポータル
               </p>
 
@@ -364,8 +364,8 @@ function App() {
                 </button>
               </div>
 
-              <p className="text-white/40 text-xs mt-10">
-                &copy; 2024 Yuimaru Ship Systems. All rights reserved.
+              <p className="text-white/40 text-[10px] mt-10">
+                &copy; 2024 Landy Systems. All rights reserved.
               </p>
             </div>
           </div>
@@ -384,7 +384,7 @@ function App() {
             <div className="flex justify-between items-center">
               <h1 className="text-2xl font-bold text-white flex items-center gap-3">
                 <Building className="w-8 h-8" />
-                ホームページ制作　店舗情報登録
+                Landy 店舗情報登録
               </h1>
               <div className="text-white text-sm">
                 <p>ログイン中: {userInfo.name}</p>
