@@ -1,0 +1,25 @@
+{
+  "name": "lp-registar",
+  "version": "1.0.0",
+  "description": "",
+  "main": "download.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/BUYSELL-Japan/lp-registar.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/BUYSELL-Japan/lp-registar/issues"
+  },
+  "homepage": "https://github.com/BUYSELL-Japan/lp-registar#readme",
+  "dependencies": {
+    "extract-zip": "^2.0.1",
+    "stripe": "^14.20.0"
+  }
+}

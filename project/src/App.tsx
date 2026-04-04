@@ -1,5 +1,16 @@
-import React, { useState, useEffect } from 'react';
-import { Building, User, MapPin, Phone, Mail, CheckCircle, LogIn } from 'lucide-react';
+import { Building, User, MapPin, Phone, Mail, CheckCircle, LogIn, Sparkles, ShieldCheck } from 'lucide-react';
+
+// ULID生成用の関数 (Crockford's Base32)
+const ENCODING = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
+const generateULID = () => {
+  const time = Date.now();
+  const timeStr = Array.from({ length: 10 }, (_, i) => {
+    const bit = Math.floor(time / Math.pow(32, 9 - i)) % 32;
+    return ENCODING[bit];
+  }).join('');
+  const randomStr = Array.from({ length: 16 }, () => ENCODING[Math.floor(Math.random() * ENCODING.length)]).join('');
+  return timeStr + randomStr;
+};
 
 interface FormData {
   store_id: string;
@@ -177,9 +188,9 @@ function App() {
   const validateForm = (): boolean => {
     const newErrors: FormErrors = {};
 
-    // 必須項目のチェック
+    // 必須項目のチェック (store_id は自動生成のため除外)
     const requiredFields = [
-      'store_id', 'subdomain', 'storeNameKanji', 'storeNameFurigana', 'fullNameKanji', 'fullNameFurigana',
+      'subdomain', 'storeNameKanji', 'storeNameFurigana', 'fullNameKanji', 'fullNameFurigana',
       'zip', 'provinceKanji', 'cityKanji', 'address1Kanji', 'phone', 'contactEmail', 'emailConfirm'
     ];
 
@@ -225,10 +236,15 @@ function App() {
     console.log('エラー内容:', errors);
 
     if (isValid && userInfo) {
-      // emailConfirmを除外して、cognito_subを含めたデータを作成
-      const { emailConfirm, ...formDataWithoutConfirm } = formData;
+      // emailConfirm と小文字の subdomain を除外し、
+      // 大文字の Subdomain と cognito_sub を含めたデータを作成
+      // store_id が空の場合はULIDを生成
+      const finalStoreId = formData.store_id || generateULID();
+      const { emailConfirm, subdomain, ...formDataWithoutConfirm } = formData;
       const dataWithSub = {
         ...formDataWithoutConfirm,
+        store_id: finalStoreId,
+        Subdomain: subdomain,
         cognito_sub: userInfo.sub
       };
 
@@ -297,24 +313,61 @@ function App() {
     );
   }
 
-  // ログイン画面
+  // プレミアムなログイン画面（グラスモルフィズム採用）
   if (!userInfo) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
-        <div className="bg-white rounded-2xl shadow-xl p-8 text-center max-w-md w-full">
-          <Building className="w-16 h-16 text-blue-600 mx-auto mb-6" />
-          <h1 className="text-2xl font-bold text-gray-800 mb-2">ホームページ制作</h1>
-          <h2 className="text-xl text-gray-600 mb-6">店舗情報登録</h2>
-          <p className="text-gray-600 mb-8">
-            店舗情報を登録するには、まずGoogleアカウントでログインしてください。
-          </p>
-          <button
-            onClick={handleGoogleLogin}
-            className="w-full bg-white border-2 border-gray-300 text-gray-700 px-6 py-4 rounded-lg font-semibold text-lg hover:bg-gray-50 hover:border-gray-400 focus:ring-4 focus:ring-blue-200 transition-all duration-200 shadow-lg hover:shadow-xl transform hover:-translate-y-0.5 flex items-center justify-center gap-3"
-          >
-            <LogIn className="w-6 h-6" />
-            Googleでログイン
-          </button>
+      <div className="min-h-screen relative overflow-hidden bg-[#0f172a] flex items-center justify-center p-4 font-sans">
+        {/* 背景の装飾用アニメーション要素 */}
+        <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] rounded-full bg-blue-600/20 blur-[120px] animate-pulse"></div>
+        <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] rounded-full bg-indigo-600/20 blur-[120px] animate-pulse" style={{ animationDelay: '1s' }}></div>
+        
+        <div className="relative z-10 w-full max-w-md">
+          <div className="bg-white/10 backdrop-blur-2xl border border-white/20 rounded-[2rem] shadow-2xl p-10 overflow-hidden relative">
+            {/* 装飾 */}
+            <div className="absolute top-0 right-0 p-4 opacity-20">
+              <Sparkles className="w-12 h-12 text-blue-400" />
+            </div>
+
+            <div className="text-center">
+              <div className="inline-flex items-center justify-center w-20 h-20 rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 shadow-lg mb-8 transform hover:rotate-6 transition-transform duration-300">
+                <Building className="w-10 h-10 text-white" />
+              </div>
+              
+              <h1 className="text-3xl font-extrabold text-white mb-2 tracking-tight">
+                Yuimaru Ship
+              </h1>
+              <p className="text-blue-200/80 font-medium mb-8">
+                店舗情報の登録・管理ポータル
+              </p>
+
+              <div className="space-y-6">
+                <div className="bg-white/5 border border-white/10 rounded-xl p-6 text-left">
+                  <div className="flex items-start gap-4 mb-4">
+                    <div className="p-2 rounded-lg bg-blue-500/20 text-blue-400">
+                      <ShieldCheck className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-semibold text-white">セキュアにログイン</p>
+                      <p className="text-xs text-white/60 leading-relaxed mt-1">信頼された認証システムを利用して店舗情報を保護します。</p>
+                    </div>
+                  </div>
+                </div>
+
+                <button
+                  onClick={handleGoogleLogin}
+                  className="group relative w-full h-16 bg-white text-gray-900 rounded-xl font-bold text-lg hover:scale-[1.02] active:scale-[0.98] transition-all duration-300 shadow-[0_0_20px_rgba(255,255,255,0.1)] hover:shadow-white/20 flex items-center justify-center gap-3 overflow-hidden"
+                >
+                  <div className="absolute inset-0 bg-gradient-to-r from-transparent via-blue-50/50 to-transparent translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-1000"></div>
+                  <img src="https://www.google.com/favicon.ico" className="w-5 h-5" alt="Google" />
+                  Googleアカウントでログイン
+                </button>
+              </div>
+
+              <p className="text-white/40 text-xs mt-10">
+                &copy; 2024 Yuimaru Ship Systems. All rights reserved.
+              </p>
+            </div>
+          </div>
         </div>
       </div>
     );
@@ -348,22 +401,7 @@ function App() {
               </h2>
               
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    店舗ID <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    name="store_id"
-                    value={formData.store_id}
-                    onChange={handleChange}
-                    className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors ${
-                      errors.store_id ? 'border-red-500 bg-red-50' : 'border-gray-300'
-                    }`}
-                    placeholder="例：ST001"
-                  />
-                  {errors.store_id && <p className="text-red-500 text-sm mt-1">{errors.store_id}</p>}
-                </div>
+                {/* store_id は自動生成されるため非表示 */}
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
