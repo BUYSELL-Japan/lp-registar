@@ -1,0 +1,18 @@
+# Secrets
+sts.json
+api_config.json
+.env
+
+# Dependencies
+node_modules/
+
+# Build artifacts
+lambda.zip
+lambda_deploy.zip
+dist/
+build/
+.bolt/
+
+# OS files
+.DS_Store
+Thumbs.db
