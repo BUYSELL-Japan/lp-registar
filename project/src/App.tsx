@@ -1,3 +1,4 @@
+import React, { useState, useEffect } from 'react';
 import { Building, User, MapPin, Phone, Mail, CheckCircle, LogIn, Sparkles, ShieldCheck } from 'lucide-react';
 
 // ULID生成用の関数 (Crockford's Base32)
