@@ -86,8 +86,14 @@ function App() {
   // URLからauthorization codeを取得してユーザー情報を取得
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
-    const code = urlParams.get('code');
     
+    // LPから渡されたテーマとプランを保存
+    const theme = urlParams.get('theme');
+    const plan = urlParams.get('plan');
+    if (theme) sessionStorage.setItem('landy_theme', theme);
+    if (plan) sessionStorage.setItem('landy_plan', plan);
+
+    const code = urlParams.get('code');
     if (code) {
       // authorization codeを使ってユーザー情報を取得
       exchangeCodeForUserInfo(code);
@@ -269,7 +275,38 @@ function App() {
         console.log('ステータステキスト:', response.statusText);
 
         if (response.ok) {
-          setIsSubmitted(true);
+          // 店舗情報保存成功後、自動的にStripe決済画面を作成して遷移
+          const savedTheme = sessionStorage.getItem('landy_theme') || 'theme1';
+          const savedPlan = sessionStorage.getItem('landy_plan') || 'monthly';
+          
+          try {
+            console.log('Stripe決済セッションを作成中...');
+            const checkoutResponse = await fetch("https://1p5i8eve1i.execute-api.ap-southeast-2.amazonaws.com/prod/checkout", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                storeId: finalStoreId,
+                planType: savedPlan,
+                templateId: savedTheme
+              })
+            });
+
+            if (!checkoutResponse.ok) {
+              throw new Error("Checkout session response was not ok");
+            }
+            
+            const checkoutData = await checkoutResponse.json();
+            if (checkoutData.url) {
+              window.location.href = checkoutData.url;
+              return; // 画面遷移するためこれ以降は実行しない
+            } else {
+              throw new Error("No URL returned for checkout");
+            }
+          } catch (checkoutError) {
+            console.error('決済連携エラー:', checkoutError);
+            alert('店舗情報は登録されましたが、Stripe決済画面への移行に失敗しました。');
+            setIsSubmitted(true);
+          }
         } else {
           const responseText = await response.text();
           console.error('送信エラー:', response.status, response.statusText);

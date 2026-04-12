@@ -3,7 +3,9 @@ import Stripe from 'stripe';
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 const ALLOWED_ORIGINS = [
     "https://admin-lp.global-reaches.com",
-    "http://localhost:5173"
+    "https://global-reaches.com",
+    "http://localhost:5173",
+    "http://localhost:4321"
 ];
 
 export const handler = async (event) => {
@@ -27,7 +29,7 @@ export const handler = async (event) => {
 
     try {
         const body = JSON.parse(event.body);
-        const { storeId } = body;
+        const { storeId, planType = 'monthly', templateId = 'theme1' } = body;
 
         if (!storeId) {
             return {
@@ -37,18 +39,29 @@ export const handler = async (event) => {
             };
         }
 
-        const priceId = process.env.STRIPE_PRICE_ID; 
-        if (!priceId) {
-            console.error("STRIPE_PRICE_ID is not set in environment variables.");
-            return {
-                statusCode: 500,
-                headers: headers,
-                body: JSON.stringify({ message: "Configuration error: Missing Price ID." })
-            };
-        }
+        // 月額と年額のPrice ID
+        const pricingMap = {
+            monthly: "price_1TGpUOF0xTh0wRdTLx34wepz",
+            yearly: "price_1TKQUBF0xTh0wRdTAvm8yCWw"
+        };
+
+        const priceId = pricingMap[planType] || pricingMap.monthly;
+
+        // ★StripeのAccounts V2 (テストモード制限) を回避＆本番移行をスムーズにするため、
+        // 先に「顧客(Customer)」を作成してからチェックアウトセッションに紐づけます。
+        const customer = await stripe.customers.create({
+            metadata: {
+                storeId: storeId,
+                templateId: templateId
+            }
+        });
+
+        const isLocal = origin.includes("localhost") || origin.includes("[::1]");
+        const successUrlBase = isLocal ? allowedOrigin : "https://admin-lp.global-reaches.com";
 
         const session = await stripe.checkout.sessions.create({
             payment_method_types: ['card'],
+            customer: customer.id, // ★作成した顧客IDを指定
             line_items: [
                 {
                     price: priceId,
@@ -56,9 +69,13 @@ export const handler = async (event) => {
                 },
             ],
             mode: 'subscription',
-            success_url: `${allowedOrigin}/?session_id={CHECKOUT_SESSION_ID}`,
-            cancel_url: `${allowedOrigin}/`,
+            success_url: `${successUrlBase}/?session_id={CHECKOUT_SESSION_ID}`,
+            cancel_url: `${successUrlBase}/`,
             client_reference_id: storeId,
+            metadata: {
+                templateId: templateId,
+                storeId: storeId,
+            },
         });
 
         return {
