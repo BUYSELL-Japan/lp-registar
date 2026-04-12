@@ -154,6 +154,58 @@ function App() {
 
           // URLからcodeパラメータを削除
           window.history.replaceState({}, document.title, window.location.pathname);
+
+          // ========= 再訪ユーザーのチェック処理 =========
+          try {
+             console.log("既存の店舗情報を確認中...");
+             // FIXME: /check-store を構築したAPI GatewayのURLに変更して使う (register-storeと同等のホストを想定)
+             const checkResponse = await fetch('https://9xylwit7o5.execute-api.ap-southeast-2.amazonaws.com/prod/check-store', { 
+               method: 'POST',
+               headers: { 'Content-Type': 'application/json' },
+               body: JSON.stringify({ cognito_sub: userData.sub })
+             });
+             
+             if (checkResponse.ok) {
+                const storeData = await checkResponse.json();
+                if (storeData.found) {
+                   if (storeData.subscriptionStatus === 'active') {
+                      alert("すでに決済が完了しています。管理画面へ移動します。");
+                      window.location.href = "https://admin-lp.global-reaches.com/";
+                      return; // 以降の処理を止める
+                   } else {
+                      // 登録済みだが未決済の場合は、フォームをスキップしてStripeへ飛ばす
+                      alert("店舗情報は登録済みです。サイトを公開するには決済画面へお進みください。");
+                      setIsSubmitted(true); // 登録済み画面(ローディング)扱いに
+                      
+                      const savedTheme = sessionStorage.getItem('landy_theme') || storeData.templateId || 'theme1';
+                      const savedPlan = sessionStorage.getItem('landy_plan') || 'monthly';
+                      
+                      console.log("既存店舗の決済セッションを作成中...");
+                      const checkoutResponse = await fetch("https://1p5i8eve1i.execute-api.ap-southeast-2.amazonaws.com/prod/checkout", {
+                         method: "POST",
+                         headers: { "Content-Type": "application/json" },
+                         body: JSON.stringify({
+                           storeId: storeData.storeId,
+                           planType: savedPlan,
+                           templateId: savedTheme
+                         })
+                      });
+                      
+                      if (checkoutResponse.ok) {
+                         const checkoutData = await checkoutResponse.json();
+                         if (checkoutData.url) {
+                            window.location.href = checkoutData.url;
+                            return;
+                         }
+                      }
+                      console.error("決済セッション作成エラー", checkoutResponse);
+                   }
+                }
+             }
+          } catch (checkErr) {
+             console.error("既存店舗の確認中にエラーが発生しました（新規登録として続行）:", checkErr);
+          }
+          // ============================================
         } else {
           console.error('userInfo取得失敗:', userResponse.status, userResponse.statusText);
         }

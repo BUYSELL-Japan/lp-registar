@@ -94,7 +94,8 @@ export const handler = async (event) => {
             TableName: "Stores",
             Item: {
                 store_id: store_id,
-                subdomain: subdomain, // ★修正箇所③：subdomainを保存
+                Subdomain: subdomain, // 大文字を追加
+                subdomain: subdomain, // 小文字も維持（既存データ互換性のため）
                 cognito_sub: cognito_sub, 
                 store_name: romajiStoreName,
                 store_name_kanji: storeNameKanji,

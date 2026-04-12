@@ -35,18 +35,25 @@ export const handler = async (event) => {
             const subscriptionId = session.subscription;
 
             if (storeId) {
+                const customerId = session.customer;
+                // Stripe metadata から templateId を取得（デフォルト: theme1）
+                const templateId = session.metadata?.templateId || 'theme1';
+
                 const updateCommand = new UpdateCommand({
                     TableName: "Stores",
                     Key: { store_id: storeId },
-                    UpdateExpression: "SET subscription_status = :status, stripe_subscription_id = :subId",
+                    UpdateExpression: "SET subscription_status = :status, stripe_subscription_id = :subId, stripe_customer_id = :customerId, templateId = :templateId",
                     ExpressionAttributeValues: {
                         ":status": "active",
-                        ":subId": subscriptionId
+                        ":subId": subscriptionId,
+                        ":customerId": customerId || null,
+                        ":templateId": templateId,
                     }
                 });
                 await ddbDocClient.send(updateCommand);
-                console.log(`Successfully updated store ${storeId} to active (${subscriptionId})`);
+                console.log(`Successfully updated store ${storeId} to active (${subscriptionId}) with customer: ${customerId}, templateId: ${templateId}`);
             }
+
         } 
         else if (stripeEvent.type === 'customer.subscription.deleted') {
             const subscription = stripeEvent.data.object;
