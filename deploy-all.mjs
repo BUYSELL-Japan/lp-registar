@@ -29,6 +29,7 @@ const lambda = new LambdaClient({ region: REGION });
 const FUNCTIONS = {
   "LP_CreateCheckoutSession": "createCheckoutSession.mjs",
   "LP_StripeWebhook":         "stripeWebhook.mjs",
+  "LP_CreatePortalSession":   "createPortalSession.mjs",
 };
 
 const LAMBDA_SRC_DIR = join(__dirname, "lambda_src");
@@ -37,10 +38,10 @@ const ZIP_PATH       = join(__dirname, "lambda_deploy.zip");
 async function buildZip() {
   console.log("📦 zip を作成中... (lambda_src/ 全体をパッケージング)");
 
-  // Windows: PowerShell の Compress-Archive を使用
-  const cmd = `powershell -Command "Compress-Archive -Path '${LAMBDA_SRC_DIR}\\*' -DestinationPath '${ZIP_PATH}' -Force"`;
+  // Windows: tar.exe の -a (auto-compress) オプションを使用
+  const cmd = `tar.exe -a -c -f "${ZIP_PATH}" -C "${LAMBDA_SRC_DIR}" .`;
   const { stdout, stderr } = await execAsync(cmd);
-  if (stderr) console.warn("zip 警告:", stderr);
+  if (stderr && !stderr.includes('tar: ')) console.warn("zip 警告:", stderr);
   console.log(`✅ zip 作成完了: ${ZIP_PATH}`);
 }
 

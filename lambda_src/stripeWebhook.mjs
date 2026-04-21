@@ -54,12 +54,34 @@ export const handler = async (event) => {
                 console.log(`Successfully updated store ${storeId} to active (${subscriptionId}) with customer: ${customerId}, templateId: ${templateId}`);
             }
 
-        } 
         else if (stripeEvent.type === 'customer.subscription.deleted') {
             const subscription = stripeEvent.data.object;
-            // NOTE: DynamoDBに stripe_subscription_id のGSIを作成すれば、解約時に簡単にステータスをinactiveにできます。
-            // 必要に応じて実装を追加してください。
-            console.log(`Subscription ${subscription.id} deleted. Need to update store mapping.`);
+            const customerId = subscription.customer;
+            
+            console.log(`Subscription ${subscription.id} deleted for customer: ${customerId}`);
+
+            if (customerId) {
+                // Fetch the customer to get the storeId from their metadata
+                const customer = await stripe.customers.retrieve(customerId);
+                
+                if (customer && !customer.deleted && customer.metadata && customer.metadata.storeId) {
+                    const storeId = customer.metadata.storeId;
+                    
+                    const updateCommand = new UpdateCommand({
+                        TableName: "Stores",
+                        Key: { store_id: storeId },
+                        UpdateExpression: "SET subscription_status = :status",
+                        ExpressionAttributeValues: {
+                            ":status": "canceled"
+                        }
+                    });
+                    
+                    await ddbDocClient.send(updateCommand);
+                    console.log(`Successfully updated store ${storeId} subscription_status to "canceled"`);
+                } else {
+                    console.warn(`Customer ${customerId} does not have a valid storeId in metadata or was deleted. Unable to update mapping.`);
+                }
+            }
         }
 
         return { statusCode: 200, body: JSON.stringify({ received: true }) };

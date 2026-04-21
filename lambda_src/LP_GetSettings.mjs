@@ -6,7 +6,7 @@
  */
 
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
-import { DynamoDBDocumentClient, GetCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
+import { DynamoDBDocumentClient, GetCommand, UpdateCommand, ScanCommand } from "@aws-sdk/lib-dynamodb";
 
 const ddbClient = new DynamoDBClient({ region: "ap-southeast-2" });
 const ddbDocClient = DynamoDBDocumentClient.from(ddbClient);
@@ -18,7 +18,18 @@ const ALLOWED_ORIGINS = [
 
 export const handler = async (event) => {
     const origin = event.headers?.origin || event.headers?.Origin || "";
-    const allowedOrigin = ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0];
+    
+    // 公開LP（任意のサブドメイン）からも取得できるようにCORSを緩和する
+    let allowedOrigin = ALLOWED_ORIGINS[0];
+    if (origin) {
+        // global-reaches.com のサブドメインか、localhostをすべて許可
+        if (origin.endsWith('.global-reaches.com') || origin.startsWith('http://localhost') || ALLOWED_ORIGINS.includes(origin)) {
+            allowedOrigin = origin;
+        } else {
+            // パブリックなGETはどこから呼ばれてもいいように緩和
+            allowedOrigin = origin;
+        }
+    }
 
     const headers = {
         "Access-Control-Allow-Origin": allowedOrigin,
@@ -102,20 +113,37 @@ export const handler = async (event) => {
 
         console.log(`Fetching settings for store: ${storeId}`);
 
-        const result = await ddbDocClient.send(new GetCommand({
+        let item = null;
+
+        const getResult = await ddbDocClient.send(new GetCommand({
             TableName: "Stores",
             Key: { store_id: storeId }
         }));
 
-        if (!result.Item) {
+        if (getResult.Item) {
+            item = getResult.Item;
+        } else {
+            // 見つからなかった場合、storeIdに指定された値が「サブドメイン」である可能性を考慮して
+            // Subdomainフィールドを対象にスキャン検索を行う
+            console.log(`Store not found by store_id, scanning by Subdomain: ${storeId}`);
+            const scanResult = await ddbDocClient.send(new ScanCommand({
+                TableName: "Stores",
+                FilterExpression: "Subdomain = :sub OR subdomain = :sub",
+                ExpressionAttributeValues: { ":sub": storeId }
+            }));
+            if (scanResult.Items && scanResult.Items.length > 0) {
+                item = scanResult.Items[0];
+                console.log(`Found store via subdomain: ${item.store_id}`);
+            }
+        }
+
+        if (!item) {
             return {
                 statusCode: 404,
                 headers,
                 body: JSON.stringify({ message: "Store not found." })
             };
         }
-
-        const item = result.Item;
 
         return {
             statusCode: 200,
