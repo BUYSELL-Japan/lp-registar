@@ -1,5 +1,5 @@
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
-import { DynamoDBDocumentClient, PutCommand } from "@aws-sdk/lib-dynamodb";
+import { DynamoDBDocumentClient, PutCommand, ScanCommand } from "@aws-sdk/lib-dynamodb";
 // ★修正：本当のユーザー名を検索するための ListUsersCommand を追加
 import { CognitoIdentityProviderClient, AdminUpdateUserAttributesCommand, ListUsersCommand } from "@aws-sdk/client-cognito-identity-provider";
 import { toRomaji } from 'wanakana';
@@ -90,10 +90,31 @@ export const handler = async (event) => {
         const romajiAddress1 = toRomaji(address1Furigana || "");
         const romajiAddress2 = toRomaji(address2Furigana || "");
 
+        // ★追加: 既存のレコードがないか cognito_sub でチェック
+        let finalStoreId = store_id;
+        try {
+            const scanCommand = new ScanCommand({
+                TableName: "Stores",
+                FilterExpression: "cognito_sub = :sub",
+                ExpressionAttributeValues: {
+                    ":sub": cognito_sub
+                }
+            });
+            const scanResult = await ddbDocClient.send(scanCommand);
+            if (scanResult.Items && scanResult.Items.length > 0) {
+                // 既存のレコードがあれば、その store_id を再利用
+                finalStoreId = scanResult.Items[0].store_id;
+                console.log(`User already has a store. Reusing store_id: ${finalStoreId}`);
+            }
+        } catch (scanError) {
+            console.error("Error scanning for existing store:", scanError);
+            // スキャンエラー時はそのまま続行（既存ロジック通り新規生成される）
+        }
+
         const putCommand = new PutCommand({
             TableName: "Stores",
             Item: {
-                store_id: store_id,
+                store_id: finalStoreId,
                 Subdomain: subdomain, // 大文字を追加
                 subdomain: subdomain, // 小文字も維持（既存データ互換性のため）
                 cognito_sub: cognito_sub, 
@@ -137,7 +158,7 @@ export const handler = async (event) => {
                         UserPoolId: userPoolId,
                         Username: actualUsername, 
                         UserAttributes: [
-                            { Name: "custom:store_id", Value: String(store_id) }
+                            { Name: "custom:store_id", Value: String(finalStoreId) }
                         ]
                     });
                     await cognitoClient.send(updateAuthCommand);
