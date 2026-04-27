@@ -39,7 +39,7 @@ export const handler = async (event) => {
         console.error("Failed to parse event body:", error);
         return {
             statusCode: 400,
-            headers: headers, 
+            headers: headers,
             body: JSON.stringify({ message: "Invalid JSON format." }),
         };
     }
@@ -50,13 +50,12 @@ export const handler = async (event) => {
         if (!cognito_sub) {
             return {
                 statusCode: 400,
-                headers: headers, 
+                headers: headers,
                 body: JSON.stringify({ message: "cognito_sub is required." }),
             };
         }
 
         // Stores テーブルをスキャンして cognito_sub が一致する店舗を検索
-        // ※将来的にデータ量が増えた場合は GSI (Global Secondary Index) と QueryCommand への変更を推奨
         const scanCommand = new ScanCommand({
             TableName: "Stores",
             FilterExpression: "cognito_sub = :sub",
@@ -66,22 +65,30 @@ export const handler = async (event) => {
         });
 
         const result = await ddbDocClient.send(scanCommand);
-        
+
         if (result.Items && result.Items.length > 0) {
-            const store = result.Items[0];
+            // ★修正: 複数アイテムがある場合は subscription_status=active を優先して返す
+            const items = result.Items;
+            const activeStore = items.find(item => item.subscription_status === "active");
+            const store = activeStore || items[0];
+
+            console.log(`Found ${items.length} store(s) for cognito_sub. Using store_id: ${store.store_id} (status: ${store.subscription_status || "none"})`);
+
+            // ★修正: 常に200で返す（404だとcheckResponse.okがfalseになり再登録されてしまう）
             return {
                 statusCode: 200,
                 headers: headers,
                 body: JSON.stringify({
                     found: true,
                     storeId: store.store_id,
-                    subscriptionStatus: store.subscription_status || 'unpaid',
-                    templateId: store.templateId || 'theme1'
+                    subscriptionStatus: store.subscription_status || "unpaid",
+                    templateId: store.templateId || "theme1"
                 })
             };
         } else {
+            // ★修正: 404ではなく200+found:falseで返す（再登録を防ぐ）
             return {
-                statusCode: 404, // 店舗が見つからない場合
+                statusCode: 200,
                 headers: headers,
                 body: JSON.stringify({
                     found: false,
@@ -94,7 +101,7 @@ export const handler = async (event) => {
         console.error("Error fetching store by cognito_sub:", error);
         return {
             statusCode: 500,
-            headers: headers, 
+            headers: headers,
             body: JSON.stringify({ message: "Internal server error.", error: error.message }),
         };
     }
