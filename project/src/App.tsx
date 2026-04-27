@@ -227,7 +227,12 @@ function App() {
     // 郵便番号の自動フォーマット
     let formattedValue = value;
     if (name === 'zip') {
-      formattedValue = value.replace(/\D/g, '').replace(/^(\d{3})(\d{4})$/, '$1-$2');
+      // 数字だけ残して最大7桁に制限
+      const digits = value.replace(/\D/g, '').slice(0, 7);
+      // 4桁以上あればハイフンを自動挿入
+      formattedValue = digits.length > 3
+        ? `${digits.slice(0, 3)}-${digits.slice(3)}`
+        : digits;
     }
     
     setFormData(prev => ({
