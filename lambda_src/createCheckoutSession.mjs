@@ -41,8 +41,8 @@ export const handler = async (event) => {
 
         // 月額と年額のPrice ID
         const pricingMap = {
-            monthly: "price_1TGpUOF0xTh0wRdTLx34wepz",
-            yearly: "price_1TKQUBF0xTh0wRdTAvm8yCWw"
+            monthly: "price_1TggPMF0xTh0wRdTvWX8zQ7R",
+            yearly: "price_1TggQcF0xTh0wRdTcOizBiw0"
         };
 
         const priceId = pricingMap[planType] || pricingMap.monthly;
@@ -69,6 +69,9 @@ export const handler = async (event) => {
                 },
             ],
             mode: 'subscription',
+            subscription_data: {
+                trial_period_days: 30, // ★ここで初月無料（30日間無料）を設定
+            },
             success_url: `${successUrlBase}/?session_id={CHECKOUT_SESSION_ID}`,
             cancel_url: `${successUrlBase}/`,
             client_reference_id: storeId,
