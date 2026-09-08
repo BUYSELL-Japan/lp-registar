@@ -39,13 +39,14 @@ export const handler = async (event) => {
             };
         }
 
-        // 月額と年額のPrice ID
+        // 初期費用と月額のPrice ID (プレースホルダー)
         const pricingMap = {
-            monthly: "price_1TggPMF0xTh0wRdTvWX8zQ7R",
-            yearly: "price_1TggQcF0xTh0wRdTcOizBiw0"
+            monthly: "price_monthly_placeholder",
+            initialFee: "price_initial_placeholder"
         };
 
-        const priceId = pricingMap[planType] || pricingMap.monthly;
+        const priceId = pricingMap.monthly;
+        const initialFeePriceId = pricingMap.initialFee;
 
         // ★StripeのAccounts V2 (テストモード制限) を回避＆本番移行をスムーズにするため、
         // 先に「顧客(Customer)」を作成してからチェックアウトセッションに紐づけます。
@@ -62,16 +63,18 @@ export const handler = async (event) => {
         const session = await stripe.checkout.sessions.create({
             payment_method_types: ['card'],
             customer: customer.id, // ★作成した顧客IDを指定
+            allow_promotion_codes: true, // ★ここでプロモーションコード（クーポン）の入力を許可する
             line_items: [
                 {
-                    price: priceId,
+                    price: priceId, // 月額
                     quantity: 1,
                 },
+                {
+                    price: initialFeePriceId, // 初期費用
+                    quantity: 1,
+                }
             ],
             mode: 'subscription',
-            subscription_data: {
-                trial_period_days: 30, // ★ここで初月無料（30日間無料）を設定
-            },
             success_url: `${successUrlBase}/?session_id={CHECKOUT_SESSION_ID}`,
             cancel_url: `${successUrlBase}/`,
             client_reference_id: storeId,
