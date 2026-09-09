@@ -41,8 +41,8 @@ export const handler = async (event) => {
 
         // 初期費用と月額のPrice ID (プレースホルダー)
         const pricingMap = {
-            monthly: "price_monthly_placeholder",
-            initialFee: "price_initial_placeholder"
+            monthly: "price_1UDc95F0xTh0wRdTzT0pd1la",
+            initialFee: "price_1UDc9qF0xTh0wRdTmZHFDJn9"
         };
 
         const priceId = pricingMap.monthly;
