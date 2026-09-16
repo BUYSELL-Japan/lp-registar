@@ -1,6 +1,10 @@
 import Stripe from 'stripe';
+import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
+import { DynamoDBDocumentClient, GetCommand } from "@aws-sdk/lib-dynamodb";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+const ddbClient = new DynamoDBClient({ region: "ap-southeast-2" });
+const ddbDocClient = DynamoDBDocumentClient.from(ddbClient);
 const ALLOWED_ORIGINS = [
     "https://admin-lp.global-reaches.com",
     "https://global-reaches.com",
@@ -29,7 +33,7 @@ export const handler = async (event) => {
 
     try {
         const body = JSON.parse(event.body);
-        const { storeId, planType = 'monthly', templateId = 'theme1' } = body;
+        const { storeId, planType = 'monthly', templateId = 'theme1', ref } = body;
 
         if (!storeId) {
             return {
@@ -37,6 +41,26 @@ export const handler = async (event) => {
                 headers: headers,
                 body: JSON.stringify({ message: "Store ID is required." })
             };
+        }
+
+        // 紹介コードが渡された場合はReferralCodesテーブルで存在確認する。
+        // 未知/無効なコードは無視して決済フロー自体は継続する（typo等でブロックしない）。
+        let referralCode;
+        if (ref) {
+            const normalizedRef = String(ref).trim().toUpperCase();
+            if (normalizedRef) {
+                try {
+                    const refResult = await ddbDocClient.send(new GetCommand({
+                        TableName: "LP_ReferralCodes",
+                        Key: { referral_code: normalizedRef }
+                    }));
+                    if (refResult.Item && refResult.Item.active !== false) {
+                        referralCode = normalizedRef;
+                    }
+                } catch (e) {
+                    console.error("Failed to validate referral code:", e);
+                }
+            }
         }
 
         // 初期費用と月額のPrice ID (プレースホルダー)
@@ -53,7 +77,8 @@ export const handler = async (event) => {
         const customer = await stripe.customers.create({
             metadata: {
                 storeId: storeId,
-                templateId: templateId
+                templateId: templateId,
+                ...(referralCode ? { ref: referralCode } : {})
             }
         });
 
@@ -81,6 +106,7 @@ export const handler = async (event) => {
             metadata: {
                 templateId: templateId,
                 storeId: storeId,
+                ...(referralCode ? { ref: referralCode } : {})
             },
         });
 

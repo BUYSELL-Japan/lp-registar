@@ -93,6 +93,10 @@ function App() {
     if (theme) sessionStorage.setItem('landy_theme', theme);
     if (plan) sessionStorage.setItem('landy_plan', plan);
 
+    // LPから渡された紹介コード（?ref=）を保存
+    const ref = urlParams.get('ref');
+    if (ref) sessionStorage.setItem('landy_ref', ref);
+
     const code = urlParams.get('code');
     if (code) {
       // authorization codeを使ってユーザー情報を取得
@@ -193,7 +197,8 @@ function App() {
                       body: JSON.stringify({
                         storeId: storeData.storeId,
                         planType: savedPlan,
-                        templateId: savedTheme
+                        templateId: savedTheme,
+                        ref: sessionStorage.getItem('landy_ref') || undefined
                       })
                    });
                    
@@ -350,7 +355,8 @@ function App() {
               body: JSON.stringify({
                 storeId: finalStoreId,
                 planType: savedPlan,
-                templateId: savedTheme
+                templateId: savedTheme,
+                ref: sessionStorage.getItem('landy_ref') || undefined
               })
             });
 

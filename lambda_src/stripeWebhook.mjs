@@ -43,22 +43,31 @@ export const handler = async (event) => {
             }
 
             const customerId = session.customer;
-            // Stripe metadata から templateId を取得（デフォルト: theme1）
+            // Stripe metadata から templateId / ref（紹介コード）を取得
             const templateId = session.metadata?.templateId || 'theme1';
+            const referralCode = session.metadata?.ref || null;
+
+            let updateExpression = "SET subscription_status = :status, stripe_subscription_id = :subId, stripe_customer_id = :customerId, templateId = :templateId";
+            const expressionAttributeValues = {
+                ":status": "active",
+                ":subId": subscriptionId,
+                ":customerId": customerId || null,
+                ":templateId": templateId,
+            };
+
+            if (referralCode) {
+                updateExpression += ", referral_code = :referralCode";
+                expressionAttributeValues[":referralCode"] = referralCode;
+            }
 
             const updateCommand = new UpdateCommand({
                 TableName: "Stores",
                 Key: { store_id: storeId },
-                UpdateExpression: "SET subscription_status = :status, stripe_subscription_id = :subId, stripe_customer_id = :customerId, templateId = :templateId",
-                ExpressionAttributeValues: {
-                    ":status": "active",
-                    ":subId": subscriptionId,
-                    ":customerId": customerId || null,
-                    ":templateId": templateId,
-                }
+                UpdateExpression: updateExpression,
+                ExpressionAttributeValues: expressionAttributeValues
             });
             await ddbDocClient.send(updateCommand);
-            console.log(`Successfully updated store ${storeId} to active (${subscriptionId}) with customer: ${customerId}, templateId: ${templateId}`);
+            console.log(`Successfully updated store ${storeId} to active (${subscriptionId}) with customer: ${customerId}, templateId: ${templateId}, referralCode: ${referralCode}`);
 
         // ============================================================
         // customer.subscription.deleted → subscription_status を canceled に

@@ -8,7 +8,7 @@
  *   node ../deploy-all.mjs
  */
 
-import { LambdaClient, UpdateFunctionCodeCommand, GetFunctionCommand } from "@aws-sdk/client-lambda";
+import { LambdaClient, UpdateFunctionCodeCommand, UpdateFunctionConfigurationCommand, GetFunctionCommand } from "@aws-sdk/client-lambda";
 import { createWriteStream, readFileSync, existsSync } from "fs";
 import { exec } from "child_process";
 import { promisify } from "util";
@@ -23,13 +23,14 @@ const lambda = new LambdaClient({ region: REGION });
 
 // ========================
 // デプロイ対象の Lambda 関数マップ
-// KEY   = AWS Lambda の関数名（AWSコンソールで確認したもの）
+// KEY   = AWS Lambda の関数名
 // VALUE = lambda_src/ 内のエントリポイントファイル名
 // ========================
 const FUNCTIONS = {
   "LP_CreateCheckoutSession": "createCheckoutSession.mjs",
   "LP_StripeWebhook":         "stripeWebhook.mjs",
   "LP_CreatePortalSession":   "createPortalSession.mjs",
+  "LP_ReferralCodes":         "referralCodes.mjs",
 };
 
 const LAMBDA_SRC_DIR = join(__dirname, "lambda_src");
@@ -54,22 +55,35 @@ async function deployFunction(functionName) {
   } catch (err) {
     if (err.name === "ResourceNotFoundException") {
       console.error(`❌ Lambda 関数が見つかりません: "${functionName}"`);
-      console.error(`   → AWSコンソールで関数名を確認し、FUNCTIONS マップを修正してください`);
       return false;
     }
     throw err;
   }
 
   const zipFile = readFileSync(ZIP_PATH);
-  const command = new UpdateFunctionCodeCommand({
+  
+  // 1. コードの更新
+  const codeCommand = new UpdateFunctionCodeCommand({
     FunctionName: functionName,
     ZipFile: zipFile,
   });
+  const response = await lambda.send(codeCommand);
+  
+  // 2. ハンドラー（実行ファイル）の設定を修正
+  const fileName = FUNCTIONS[functionName];
+  const handlerName = fileName.replace('.mjs', '.handler');
+  try {
+    const configCommand = new UpdateFunctionConfigurationCommand({
+      FunctionName: functionName,
+      Handler: handlerName
+    });
+    await lambda.send(configCommand);
+    console.log(`✅ ハンドラー設定を修正しました: ${handlerName}`);
+  } catch (configErr) {
+    console.warn(`⚠️ ハンドラーの設定変更に失敗しましたが、コードは更新されました: ${configErr.message}`);
+  }
 
-  const response = await lambda.send(command);
   console.log(`✅ デプロイ成功: ${functionName}`);
-  console.log(`   最終更新: ${response.LastModified}`);
-  console.log(`   バージョン: ${response.FunctionArn}`);
   return true;
 }
 
