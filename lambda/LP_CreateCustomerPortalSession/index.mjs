@@ -1,0 +1,94 @@
+import Stripe from 'stripe';
+import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
+import { DynamoDBDocumentClient, GetCommand } from "@aws-sdk/lib-dynamodb";
+import { authorizeStoreAccess } from "./cognitoAuth.mjs";
+
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+const ddbClient = new DynamoDBClient({ region: "ap-southeast-2" });
+const ddbDocClient = DynamoDBDocumentClient.from(ddbClient);
+const TABLE_NAME = process.env.DYNAMODB_TABLE || "Stores";
+
+const ALLOWED_ORIGINS = [
+    "https://admin-lp.global-reaches.com",
+    "http://localhost:5173"
+];
+
+export const handler = async (event) => {
+    let origin = "";
+    if (event.headers) {
+        origin = event.headers.origin || event.headers.Origin || "";
+    }
+
+    const allowedOrigin = ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0];
+
+    const headers = {
+        "Access-Control-Allow-Origin": allowedOrigin,
+        "Access-Control-Allow-Headers": "Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token",
+        "Access-Control-Allow-Methods": "POST,OPTIONS",
+        "Content-Type": "application/json"
+    };
+
+    // CORS プリフライトリクエストへの対応
+    if (event.httpMethod === "OPTIONS" || event.requestContext?.http?.method === "OPTIONS") {
+        return { statusCode: 200, headers: headers, body: "" };
+    }
+
+    try {
+        const body = JSON.parse(event.body);
+        const { storeId } = body;
+
+        if (!storeId) {
+            return {
+                statusCode: 400,
+                headers: headers,
+                body: JSON.stringify({ message: "Store ID is required." })
+            };
+        }
+
+        // Cognito IDトークンを検証し、この店舗の所有者か確認する
+        const auth = await authorizeStoreAccess(event, storeId, ddbDocClient);
+        if (!auth.ok) {
+            return {
+                statusCode: auth.statusCode,
+                headers: headers,
+                body: JSON.stringify({ message: auth.message })
+            };
+        }
+
+        // DynamoDBからstripe_customer_idを取得
+        const result = await ddbDocClient.send(new GetCommand({
+            TableName: TABLE_NAME,
+            Key: { store_id: storeId },
+            ProjectionExpression: "stripe_customer_id"
+        }));
+
+        const customerId = result.Item?.stripe_customer_id;
+
+        if (!customerId) {
+            return {
+                statusCode: 404,
+                headers: headers,
+                body: JSON.stringify({ message: "Stripe customer not found for this store." })
+            };
+        }
+
+        // Stripe Customer Portalセッション作成
+        const portalSession = await stripe.billingPortal.sessions.create({
+            customer: customerId,
+            return_url: `${allowedOrigin}/`,
+        });
+
+        return {
+            statusCode: 200,
+            headers: headers,
+            body: JSON.stringify({ url: portalSession.url })
+        };
+    } catch (error) {
+        console.error("Customer Portal Error:", error);
+        return {
+            statusCode: 500,
+            headers: headers,
+            body: JSON.stringify({ message: error.message })
+        };
+    }
+};

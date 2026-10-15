@@ -1,6 +1,7 @@
 import Stripe from 'stripe';
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, GetCommand } from "@aws-sdk/lib-dynamodb";
+import { authorizeStoreAccess } from "./cognitoAuth.mjs";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 const ddbClient = new DynamoDBClient({ region: "ap-southeast-2" });
@@ -40,6 +41,16 @@ export const handler = async (event) => {
                 statusCode: 400,
                 headers: headers,
                 body: JSON.stringify({ message: "Store ID is required." })
+            };
+        }
+
+        // Cognito IDトークンを検証し、この店舗の所有者か確認する
+        const auth = await authorizeStoreAccess(event, storeId, ddbDocClient);
+        if (!auth.ok) {
+            return {
+                statusCode: auth.statusCode,
+                headers: headers,
+                body: JSON.stringify({ message: auth.message })
             };
         }
 
