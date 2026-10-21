@@ -16,3 +16,7 @@ build/
 # OS files
 .DS_Store
 Thumbs.db
+
+# aws lambda get-function の出力（署名付きURL・アカウントIDを含む）
+lambda_config.json
+lambda_config_utf8.json
