@@ -1,10 +1,112 @@
 import Stripe from 'stripe';
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
-import { DynamoDBDocumentClient, UpdateCommand, ScanCommand } from "@aws-sdk/lib-dynamodb";
+import { DynamoDBDocumentClient, UpdateCommand, ScanCommand, GetCommand } from "@aws-sdk/lib-dynamodb";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 const ddbClient = new DynamoDBClient({ region: "ap-southeast-2" });
 const ddbDocClient = DynamoDBDocumentClient.from(ddbClient);
+
+// subscription_status を Stripe と同期するイベント
+const SUBSCRIPTION_EVENTS = new Set([
+    'customer.subscription.updated',
+    'customer.subscription.deleted',
+    'invoice.payment_failed',
+    'invoice.paid',
+]);
+
+// 店舗LPを非公開にする状態（LP_ListStores と揃える）。past_due（再請求中）は公開を続ける
+const HIDDEN_STATUSES = new Set(['unpaid', 'canceled']);
+
+// 公開・非公開が切り替わったときに店舗LPを再ビルドする Cloudflare の Deploy Hook
+const CLOUDFLARE_WEBHOOK_URL = process.env.CLOUDFLARE_WEBHOOK_URL;
+
+const triggerCloudflareWebhook = async () => {
+    if (!CLOUDFLARE_WEBHOOK_URL) {
+        console.error('CLOUDFLARE_WEBHOOK_URL is not set. Skipping deploy hook.');
+        return false;
+    }
+    try {
+        const res = await fetch(CLOUDFLARE_WEBHOOK_URL, { method: 'POST' });
+        console.log(`Cloudflare webhook triggered: ${res.status}`);
+        return res.ok;
+    } catch (err) {
+        console.error('Cloudflare webhook error:', err);
+        return false;
+    }
+};
+
+const getSubscriptionId = (stripeEvent) => {
+    const obj = stripeEvent.data.object;
+    if (stripeEvent.type.startsWith('customer.subscription.')) return obj.id;
+    // invoice: API 2025-03-31 以降は parent.subscription_details.subscription、それ以前は subscription
+    const sub = obj.parent?.subscription_details?.subscription ?? obj.subscription;
+    return typeof sub === 'string' ? sub : sub?.id || null;
+};
+
+// Customer の metadata.storeId から店舗を特定し、無ければ Stores を stripe_customer_id で検索する
+const findStoreId = async (customerId) => {
+    try {
+        const customer = await stripe.customers.retrieve(customerId);
+        if (customer && !customer.deleted && customer.metadata?.storeId) {
+            return customer.metadata.storeId;
+        }
+    } catch (e) {
+        console.error(`Failed to retrieve customer ${customerId} from Stripe:`, e);
+    }
+
+    console.log(`No storeId in Stripe metadata for customer ${customerId}. Searching DynamoDB...`);
+    const scanResult = await ddbDocClient.send(new ScanCommand({
+        TableName: "Stores",
+        FilterExpression: "stripe_customer_id = :customerId",
+        ExpressionAttributeValues: { ":customerId": customerId }
+    }));
+    return scanResult.Items?.[0]?.store_id || null;
+};
+
+// イベントの順番が前後したり重複したりしても正しい状態になるよう、毎回 Stripe から最新の状態を取得して書き込む
+const syncSubscriptionStatus = async (subscriptionId, eventType) => {
+    const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+    const customerId = typeof subscription.customer === 'string' ? subscription.customer : subscription.customer?.id;
+    const storeId = customerId ? await findStoreId(customerId) : null;
+    if (!storeId) {
+        console.warn(`${eventType}: store not found for subscription ${subscriptionId} (customer ${customerId}).`);
+        return;
+    }
+
+    const { Item: store } = await ddbDocClient.send(new GetCommand({
+        TableName: "Stores",
+        Key: { store_id: storeId },
+        ProjectionExpression: "subscription_status, stripe_subscription_id"
+    }));
+    if (!store) {
+        console.warn(`${eventType}: store ${storeId} does not exist in Stores.`);
+        return;
+    }
+    if (store.stripe_subscription_id && store.stripe_subscription_id !== subscription.id) {
+        console.warn(`${eventType}: store ${storeId} is linked to ${store.stripe_subscription_id}, not ${subscription.id}. Skipping.`);
+        return;
+    }
+
+    const oldStatus = store.subscription_status;
+    const newStatus = subscription.status;
+    if (oldStatus === newStatus) {
+        console.log(`${eventType}: store ${storeId} already ${newStatus}.`);
+        return;
+    }
+
+    await ddbDocClient.send(new UpdateCommand({
+        TableName: "Stores",
+        Key: { store_id: storeId },
+        UpdateExpression: "SET subscription_status = :status, stripe_subscription_id = if_not_exists(stripe_subscription_id, :subId)",
+        ExpressionAttributeValues: { ":status": newStatus, ":subId": subscription.id }
+    }));
+    console.log(`${eventType}: store ${storeId} subscription_status ${oldStatus} -> ${newStatus}`);
+
+    if (HIDDEN_STATUSES.has(oldStatus) !== HIDDEN_STATUSES.has(newStatus)) {
+        console.log(`Store ${storeId} visibility changed. Triggering Cloudflare deploy webhook...`);
+        await triggerCloudflareWebhook();
+    }
+};
 
 export const handler = async (event) => {
     // API Gateway (HTTP API / REST API) の違いやプロキシ統合により body は base64 エンコードされている場合があります
@@ -70,64 +172,15 @@ export const handler = async (event) => {
             console.log(`Successfully updated store ${storeId} to active (${subscriptionId}) with customer: ${customerId}, templateId: ${templateId}, referralCode: ${referralCode}`);
 
         // ============================================================
-        // customer.subscription.deleted → subscription_status を canceled に
+        // サブスクリプションの状態変化（支払い失敗・復旧・解約など）
+        // → Stripe から最新のサブスクリプションを取得して subscription_status に反映
         // ============================================================
-        } else if (stripeEvent.type === 'customer.subscription.deleted') {
-            const subscription = stripeEvent.data.object;
-            const customerId = subscription.customer;
-
-            console.log(`Subscription ${subscription.id} deleted for customer: ${customerId}`);
-
-            if (customerId) {
-                let storeId = null;
-
-                // 1. まずCustomerメタデータからstoreIdを取得試行
-                try {
-                    const customer = await stripe.customers.retrieve(customerId);
-                    if (customer && !customer.deleted && customer.metadata && customer.metadata.storeId) {
-                        storeId = customer.metadata.storeId;
-                    }
-                } catch (e) {
-                    console.error(`Failed to retrieve customer ${customerId} from Stripe:`, e);
-                }
-
-                // 2. メタデータにない場合、DynamoDBを検索してフォールバック
-                if (!storeId) {
-                    console.log(`No storeId in Stripe metadata for customer ${customerId}. Searching DynamoDB...`);
-                    try {
-                        const scanCommand = new ScanCommand({
-                            TableName: "Stores",
-                            FilterExpression: "stripe_customer_id = :customerId",
-                            ExpressionAttributeValues: {
-                                ":customerId": customerId
-                            }
-                        });
-                        const scanResult = await ddbDocClient.send(scanCommand);
-                        if (scanResult.Items && scanResult.Items.length > 0) {
-                            storeId = scanResult.Items[0].store_id;
-                            console.log(`Found storeId ${storeId} in DynamoDB for customer ${customerId}`);
-                        }
-                    } catch (e) {
-                        console.error(`Failed to scan DynamoDB for customer ${customerId}:`, e);
-                    }
-                }
-
-                // 3. storeIdが見つかった場合、解約ステータスに更新
-                if (storeId) {
-                    const updateCommand = new UpdateCommand({
-                        TableName: "Stores",
-                        Key: { store_id: storeId },
-                        UpdateExpression: "SET subscription_status = :status",
-                        ExpressionAttributeValues: {
-                            ":status": "canceled"
-                        }
-                    });
-
-                    await ddbDocClient.send(updateCommand);
-                    console.log(`Successfully updated store ${storeId} subscription_status to "canceled"`);
-                } else {
-                    console.warn(`Customer ${customerId} does not have a valid storeId in metadata and was not found in DB. Unable to update mapping.`);
-                }
+        } else if (SUBSCRIPTION_EVENTS.has(stripeEvent.type)) {
+            const subscriptionId = getSubscriptionId(stripeEvent);
+            if (!subscriptionId) {
+                console.log(`${stripeEvent.type}: no subscription attached. Skipping.`);
+            } else {
+                await syncSubscriptionStatus(subscriptionId, stripeEvent.type);
             }
         }
 

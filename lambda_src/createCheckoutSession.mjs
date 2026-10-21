@@ -63,14 +63,17 @@ export const handler = async (event) => {
             }
         }
 
-        // 初期費用と月額のPrice ID (プレースホルダー)
-        const pricingMap = {
-            monthly: "price_1UDc95F0xTh0wRdTzT0pd1la",
-            initialFee: "price_1UDc9qF0xTh0wRdTmZHFDJn9"
-        };
-
-        const priceId = pricingMap.monthly;
-        const initialFeePriceId = pricingMap.initialFee;
+        // 月額と初期費用の Price ID（テスト環境と本番環境で切り替えられるよう環境変数で渡す）
+        const priceId = process.env.STRIPE_PRICE_MONTHLY;
+        const initialFeePriceId = process.env.STRIPE_PRICE_INITIAL_FEE;
+        if (!priceId || !initialFeePriceId) {
+            console.error("STRIPE_PRICE_MONTHLY / STRIPE_PRICE_INITIAL_FEE is not set.");
+            return {
+                statusCode: 500,
+                headers: headers,
+                body: JSON.stringify({ message: "Checkout is not configured." })
+            };
+        }
 
         // ★StripeのAccounts V2 (テストモード制限) を回避＆本番移行をスムーズにするため、
         // 先に「顧客(Customer)」を作成してからチェックアウトセッションに紐づけます。
