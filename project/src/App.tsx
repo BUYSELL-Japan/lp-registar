@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Building, User, MapPin, Phone, Mail, CheckCircle, LogIn, Sparkles, ShieldCheck } from 'lucide-react';
+import { storeTokens, getValidIdToken } from './auth';
 
 // ULID生成用の関数 (Crockford's Base32)
 const ENCODING = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
@@ -135,6 +136,7 @@ function App() {
 
       if (tokenResponse.ok) {
         const tokenData = await tokenResponse.json();
+        storeTokens(tokenData);
         
         // access tokenを使ってユーザー情報を取得
         const userResponse = await fetch('https://ap-southeast-2usnGBI9WI.auth.ap-southeast-2.amazoncognito.com/oauth2/userInfo', {
@@ -329,11 +331,19 @@ function App() {
 
       // AWS API GatewayへPOST送信
       try {
+        const idToken = await getValidIdToken();
+        if (!idToken) {
+          alert('ログインの有効期限が切れました。お手数ですが、もう一度ログインしてください。');
+          handleGoogleLogin();
+          return;
+        }
+
         console.log('fetch開始...');
         const response = await fetch('https://9xylwit7o5.execute-api.ap-southeast-2.amazonaws.com/prod/register-store', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
+            'Authorization': `Bearer ${idToken}`,
           },
           body: JSON.stringify(dataWithSub)
         });
@@ -376,6 +386,12 @@ function App() {
             alert('店舗情報は登録されましたが、Stripe決済画面への移行に失敗しました。');
             setIsSubmitted(true);
           }
+        } else if (response.status === 409) {
+          setErrors(prev => ({ ...prev, subdomain: 'このサブドメインは既に使われています。別のサブドメインを入力してください。' }));
+          alert('このサブドメインは既に使われています。別のサブドメインを入力してください。');
+        } else if (response.status === 401 || response.status === 403) {
+          alert('ログイン情報を確認できませんでした。お手数ですが、もう一度ログインしてください。');
+          handleGoogleLogin();
         } else {
           const responseText = await response.text();
           console.error('送信エラー:', response.status, response.statusText);

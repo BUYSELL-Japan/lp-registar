@@ -7,9 +7,42 @@
 
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, PutCommand, ScanCommand } from "@aws-sdk/lib-dynamodb";
+import { verifyIdToken, getBearerToken } from "./cognitoAuth.mjs";
 
 const ddbClient = new DynamoDBClient({ region: "ap-southeast-2" });
 const ddbDocClient = DynamoDBDocumentClient.from(ddbClient);
+
+// AUTH_MODE=migration の間はトークンなしのリクエストも通す（警告ログのみ）。それ以外はトークン必須
+const AUTH_MODE = process.env.AUTH_MODE === "migration" ? "migration" : "enforce";
+
+// 紹介コードの発行・一覧は Cognito の admin グループに所属するユーザーだけに許可する
+const ADMIN_GROUP = "admin";
+
+async function authorizeAdmin(event) {
+    const token = getBearerToken(event.headers || {});
+    if (!token) {
+        if (AUTH_MODE === "migration") {
+            console.warn(`[AUTH_MIGRATION] referral-codes without token (${event.requestContext?.http?.method || event.httpMethod})`);
+            return { ok: true };
+        }
+        return { ok: false, statusCode: 401, message: "Unauthorized" };
+    }
+
+    let claims;
+    try {
+        claims = await verifyIdToken(token);
+    } catch (err) {
+        console.warn("Token verification failed:", err.message);
+        return { ok: false, statusCode: 401, message: "Unauthorized" };
+    }
+
+    const groups = claims["cognito:groups"] || [];
+    if (!groups.includes(ADMIN_GROUP)) {
+        console.warn(`Forbidden: sub ${claims.sub} is not in the ${ADMIN_GROUP} group`);
+        return { ok: false, statusCode: 403, message: "Forbidden" };
+    }
+    return { ok: true };
+}
 
 const ALLOWED_ORIGINS = [
     "https://admin-lp.global-reaches.com",
@@ -32,6 +65,11 @@ export const handler = async (event) => {
     }
 
     const method = event.httpMethod || event.requestContext?.http?.method || "GET";
+
+    const auth = await authorizeAdmin(event);
+    if (!auth.ok) {
+        return { statusCode: auth.statusCode, headers, body: JSON.stringify({ message: auth.message }) };
+    }
 
     // ==========================
     // POST: 新規紹介コードの発行

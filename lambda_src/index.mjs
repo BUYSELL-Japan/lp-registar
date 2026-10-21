@@ -3,9 +3,16 @@ import { DynamoDBDocumentClient, PutCommand, ScanCommand } from "@aws-sdk/lib-dy
 // ★修正：本当のユーザー名を検索するための ListUsersCommand を追加
 import { CognitoIdentityProviderClient, AdminUpdateUserAttributesCommand, ListUsersCommand } from "@aws-sdk/client-cognito-identity-provider";
 import { toRomaji } from 'wanakana';
+import { verifyIdToken, getBearerToken } from './cognitoAuth.mjs';
 
 const ddbClient = new DynamoDBClient({ region: "ap-southeast-2" });
 const ddbDocClient = DynamoDBDocumentClient.from(ddbClient);
+
+// AUTH_MODE=migration の間はトークンなしのリクエストも通す（警告ログのみ）。それ以外はトークン必須
+const AUTH_MODE = process.env.AUTH_MODE === "migration" ? "migration" : "enforce";
+
+// 店舗LP以外で使っているサブドメイン。店舗には割り当てない
+const RESERVED_SUBDOMAINS = ["www", "register", "admin", "admin-lp", "api"];
 
 // ★追加：Cognitoのクライアントを初期化
 const cognitoClient = new CognitoIdentityProviderClient({ region: "ap-southeast-2" });
@@ -54,9 +61,11 @@ export const handler = async (event) => {
     }
 
     try {
+        // ★修正：大文字・小文字どちらで来ても取得できるようにする
+        const subdomain = parsedBody.Subdomain || parsedBody.subdomain || "";
+
         const {
             store_id,
-            Subdomain: subdomain, // ★修正：JSONの大文字 Subdomain を小文字の変数で受け取る
             storeNameKanji,
             storeNameFurigana,
             fullNameKanji,
@@ -72,8 +81,29 @@ export const handler = async (event) => {
             address2Furigana,
             phone,
             contactEmail,
-            cognito_sub, 
         } = parsedBody;
+
+        // Cognito IDトークンを検証し、cognito_sub はリクエスト本文ではなくトークンから取る
+        let cognito_sub = parsedBody.cognito_sub;
+        const token = getBearerToken(event.headers || {});
+        if (token) {
+            let claims;
+            try {
+                claims = await verifyIdToken(token);
+            } catch (err) {
+                console.warn("Token verification failed:", err.message);
+                return { statusCode: 401, headers: headers, body: JSON.stringify({ message: "Unauthorized" }) };
+            }
+            if (cognito_sub && cognito_sub !== claims.sub) {
+                console.warn(`Forbidden: token sub ${claims.sub} != body cognito_sub ${cognito_sub}`);
+                return { statusCode: 403, headers: headers, body: JSON.stringify({ message: "Forbidden" }) };
+            }
+            cognito_sub = claims.sub;
+        } else if (AUTH_MODE === "migration") {
+            console.warn(`[AUTH_MIGRATION] register-store without token (cognito_sub: ${cognito_sub})`);
+        } else {
+            return { statusCode: 401, headers: headers, body: JSON.stringify({ message: "Unauthorized" }) };
+        }
 
         if (!store_id || !cognito_sub) {
             return {
@@ -109,6 +139,32 @@ export const handler = async (event) => {
         } catch (scanError) {
             console.error("Error scanning for existing store:", scanError);
             // スキャンエラー時はそのまま続行（既存ロジック通り新規生成される）
+        }
+
+        // サブドメインの重複チェック（同じサブドメインの店舗が2つあるとビルド時にパスが衝突する）
+        if (subdomain) {
+            const normalized = String(subdomain).toLowerCase();
+            if (RESERVED_SUBDOMAINS.includes(normalized) || normalized.startsWith("demo-")) {
+                return {
+                    statusCode: 409,
+                    headers: headers,
+                    body: JSON.stringify({ code: "SUBDOMAIN_TAKEN", message: "This subdomain is not available." }),
+                };
+            }
+            const dupResult = await ddbDocClient.send(new ScanCommand({
+                TableName: "Stores",
+                FilterExpression: "(Subdomain = :sub OR subdomain = :sub) AND store_id <> :storeId",
+                ExpressionAttributeValues: { ":sub": subdomain, ":storeId": finalStoreId },
+                ProjectionExpression: "store_id",
+            }));
+            if (dupResult.Items && dupResult.Items.length > 0) {
+                console.warn(`Subdomain ${subdomain} is already used by store ${dupResult.Items[0].store_id}`);
+                return {
+                    statusCode: 409,
+                    headers: headers,
+                    body: JSON.stringify({ code: "SUBDOMAIN_TAKEN", message: "This subdomain is already in use." }),
+                };
+            }
         }
 
         const putCommand = new PutCommand({
