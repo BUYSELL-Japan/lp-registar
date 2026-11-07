@@ -13,7 +13,7 @@
 | `lambda_src/referralCodes.mjs` | LP_ReferralCodes | `referralCodes.handler` | `1p5i8eve1i` GET・POST `/referral-codes` | nodejs24.x | 10秒 / 128MB | `AUTH_MODE` | なし |
 | `lambda_src/reminderEmail.mjs` | LP_ReminderEmail | `reminderEmail.handler` | EventBridge ルール `LP_ReminderEmail_Schedule`（`rate(1 hour)`） | nodejs20.x | 30秒 / 128MB | `RESEND_API_KEY`、`RESEND_FROM_EMAIL` | なし |
 | `lambda/StoreId-Injector/` | StoreId-Injector | `index.handler` | Cognito ユーザープール `ap-southeast-2_usnGBI9WI` の Pre Token Generation（V2_0） | nodejs22.x | 3秒 / 128MB | なし | なし（今回追加） |
-| `lambda/LP_LineWebhook/` | LP_LineWebhook | `index.handler` | `1p5i8eve1i/prod` POST `/line/webhook`（Landyパートナー用 LINE 公式アカウントの Webhook） | nodejs24.x | 10秒 / 128MB | `LINE_CHANNEL_SECRET`、`LINE_CHANNEL_ACCESS_TOKEN`、`LP_BASE_URL` | なし（2026-11-07 追加） |
+| `lambda/LP_LineWebhook/` | LP_LineWebhook | `index.handler` | `1p5i8eve1i/prod` POST `/line/webhook`（Landyパートナー用 LINE 公式アカウントの Webhook） | nodejs24.x | 10秒 / 256MB | `LINE_CHANNEL_SECRET`、`LINE_CHANNEL_ACCESS_TOKEN`、`LP_BASE_URL` | なし（2026-11-07 追加） |
 
 - `lambda_src/` を使う関数は、`deploy-all.mjs` が `lambda_src/` 全体を1つの zip にしてデプロイしている（ハンドラ名でファイルを切り替える）。registerStore と LP_CheckStore は別の手順で、ファイル1つを `index.mjs` として載せている。registerStore は `lambda_src/index.mjs` と `cognitoAuth.mjs` を、`node_modules`（wanakana など）入りの zip に入れてデプロイする。
 - `lambda_src/LP_GetSettings.mjs` はどの関数にもデプロイされていない。`/lp/settings` を処理しているのは lp-baseline-theme の `lambda/LP_iframe/`。
