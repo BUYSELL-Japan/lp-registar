@@ -13,10 +13,20 @@
 | `lambda_src/referralCodes.mjs` | LP_ReferralCodes | `referralCodes.handler` | `1p5i8eve1i` GET・POST `/referral-codes` | nodejs24.x | 10秒 / 128MB | `AUTH_MODE` | なし |
 | `lambda_src/reminderEmail.mjs` | LP_ReminderEmail | `reminderEmail.handler` | EventBridge ルール `LP_ReminderEmail_Schedule`（`rate(1 hour)`） | nodejs20.x | 30秒 / 128MB | `RESEND_API_KEY`、`RESEND_FROM_EMAIL` | なし |
 | `lambda/StoreId-Injector/` | StoreId-Injector | `index.handler` | Cognito ユーザープール `ap-southeast-2_usnGBI9WI` の Pre Token Generation（V2_0） | nodejs22.x | 3秒 / 128MB | なし | なし（今回追加） |
+| `lambda/LP_LineWebhook/` | LP_LineWebhook | `index.handler` | `1p5i8eve1i/prod` POST `/line/webhook`（Landyパートナー用 LINE 公式アカウントの Webhook） | nodejs24.x | 10秒 / 128MB | `LINE_CHANNEL_SECRET`、`LINE_CHANNEL_ACCESS_TOKEN`、`LP_BASE_URL` | なし（2026-11-07 追加） |
 
 - `lambda_src/` を使う関数は、`deploy-all.mjs` が `lambda_src/` 全体を1つの zip にしてデプロイしている（ハンドラ名でファイルを切り替える）。registerStore と LP_CheckStore は別の手順で、ファイル1つを `index.mjs` として載せている。registerStore は `lambda_src/index.mjs` と `cognitoAuth.mjs` を、`node_modules`（wanakana など）入りの zip に入れてデプロイする。
 - `lambda_src/LP_GetSettings.mjs` はどの関数にもデプロイされていない。`/lp/settings` を処理しているのは lp-baseline-theme の `lambda/LP_iframe/`。
 - `1p5i8eve1i`（Landy-Payment-API）のルートにはオーソライザーが付いていない。
+
+## LINE 紹介URL自動返信（LP_LineWebhook）
+
+- パートナーが「URL希望」（または「紹介URL」）と送ると、その LINE ユーザー専用の紹介コードを返す。前後の空白・全角/半角の違いは無視する。
+- 同じ LINE ユーザーには同じコードを返す（LP_ReferralCodes の `line_user_id` で探す）。初回は `LP` + 3桁の連番（LP001, LP002...）を `attribute_not_exists` 付きで発行し、`agent_name` に LINE の表示名、`source: "line"` を保存する。
+- 返信は `https://webdesign.neural-seeds.com/?ref=<コード>`。`active=false` のコードの人には「ご利用いただけません」と返す。
+- `x-line-signature`（チャネルシークレットの HMAC-SHA256）が合わなければ 401。それ以外は常に 200 を返す（LINE の再送を止めるため）。
+- /referral-codes API は通さず DynamoDB に直接書くので、LP_ReferralCodes の AUTH_MODE には影響されない。ロール `LP_LineWebhook-role` は LP_ReferralCodes の Scan・PutItem だけ許可。
+- デプロイ：`lambda/LP_LineWebhook/index.mjs` だけを zip にして `aws lambda update-function-code --function-name LP_LineWebhook`。
 
 ## 認証（AUTH_MODE）
 
